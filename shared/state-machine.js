@@ -1,7 +1,7 @@
 export const DEFAULT_SETTINGS = {
   apiKey: '',
   mailApiBaseUrl: '',
-  mailUiPassword: 'admini123',
+  mailUiPassword: 'admin',
   loginPageUrl: '',
   sessionEndpointUrl: '',
   sessionProtectionEnabled: true,
