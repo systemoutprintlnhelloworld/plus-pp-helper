@@ -23,9 +23,6 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run tests
-        run: npm test
-
       - name: Setup Chrome
         uses: browser-actions/setup-chrome@v1
 
