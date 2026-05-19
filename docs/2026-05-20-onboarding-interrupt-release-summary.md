@@ -23,6 +23,8 @@
   - 整理扩展文件到 `dist/plus-pp-helper`。
   - 生成 ZIP 和 CRX，并上传到 workflow artifacts。
   - 分支 push 创建 `auto-<run_number>` prerelease；tag push 创建正式 Release，并把 ZIP / CRX 附加到 Release。
+  - GitHub runner 中使用 `--no-sandbox` 执行 Chrome `--pack-extension`，避免 Ubuntu runner 因浏览器 sandbox 限制导致 CRX 打包崩溃。
+  - Release metadata 改为独立 shell 步骤输出，避免 workflow 解析阶段受复杂表达式影响。
 
 ## Release 密钥说明
 
@@ -36,10 +38,23 @@ CRX_PRIVATE_KEY_B64
 
 ## 验证
 
-已计划运行：
+已运行：
 
 ```text
-node --check background.js
-node --check sidepanel/sidepanel.js
 npm test
+```
+
+结果：`164/164` 通过。
+
+GitHub 发布验证：
+
+```text
+Repository: https://github.com/systemoutprintlnhelloworld/plus-pp-helper
+Workflow: Release Extension
+Run: https://github.com/systemoutprintlnhelloworld/plus-pp-helper/actions/runs/26125247383
+Release: https://github.com/systemoutprintlnhelloworld/plus-pp-helper/releases/tag/auto-3
+Commit: 3622f8fa4c2f8e1daf9c5fc0ac8eaa96f8b44bb9
+Artifacts:
+- plus-pp-helper.zip
+- plus-pp-helper.crx
 ```
