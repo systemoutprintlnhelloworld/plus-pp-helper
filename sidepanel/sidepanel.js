@@ -1,0 +1,892 @@
+import { setButtonBusyState } from '../shared/button-busy-state.js';
+import { getAutoRunPrimaryControl, getAutoRunRestartLabel } from '../shared/auto-run-controls.js';
+import { getLogAreaScrollTop, isScrollNearBottom } from '../shared/log-scroll.js';
+
+const $ = (id) => document.getElementById(id);
+
+const STEP_STATUS_ICONS = {
+  pending: '',
+  running: '…',
+  completed: '✓',
+  failed: '✕',
+};
+
+const LOG_LEVEL_LABELS = {
+  info: 'INFO',
+  ok: 'OK',
+  warn: 'WARN',
+  error: 'ERR',
+};
+
+const TOAST_ICONS = {
+  info: 'i',
+  success: '✓',
+  warn: '!',
+  error: '✕',
+};
+
+const EYE_STATES = {
+  hidden: '◉',
+  visible: '◎',
+};
+const LOG_STICK_TO_END_STORAGE_KEY = 'plusPpHelperLogStickToEnd';
+
+const STEP_DEFAULT_STATUSES = {
+  1: 'pending',
+  2: 'pending',
+  3: 'pending',
+  4: 'pending',
+  5: 'pending',
+  6: 'pending',
+  7: 'pending',
+};
+
+const formIds = [
+  'api-key',
+  'mail-api-base-url',
+  'mail-ui-password',
+  'login-page-url',
+  'session-endpoint-url',
+  'session-protection-enabled',
+  'session-protection-disable-password',
+  'profile-full-name',
+  'profile-age',
+  'run-count',
+  'poll-interval',
+  'poll-timeout',
+];
+
+const actionButtonIds = [
+  'save-settings',
+  'auto-run-current',
+  'quick-interrupt-run',
+  'restart-current-run',
+  'restart-next-account',
+  'step-1',
+  'step-2',
+  'step-3',
+  'poll-signup-code',
+  'fill-signup-code',
+  'step-5',
+  'step-6',
+  'step-7',
+  'complete-flow',
+];
+
+const elements = {
+  saveButton: $('save-settings'),
+  saveHint: $('save-hint'),
+  stepsProgress: $('steps-progress'),
+  logArea: $('log-area'),
+  toastContainer: $('toast-container'),
+  copyLogsButton: $('copy-logs'),
+  clearLogsButton: $('clear-logs'),
+  logStickToEndInput: $('log-stick-to-end'),
+  toggleApiKeyButton: $('toggle-api-key'),
+  toggleMailUiPasswordButton: $('toggle-mail-ui-password'),
+  toggleSessionProtectionDisablePasswordButton: $('toggle-session-protection-disable-password'),
+  autoRunButton: $('auto-run-current'),
+  quickInterruptButton: $('quick-interrupt-run'),
+  restartCurrentButton: $('restart-current-run'),
+  restartNextButton: $('restart-next-account'),
+  accountSearchInput: $('account-search'),
+  accountSearchStatus: $('account-search-status'),
+  accountSearchResults: $('account-search-results'),
+  selectedAccountHint: $('selected-account-hint'),
+  clearSelectedAccountButton: $('clear-selected-account'),
+};
+
+let latestState = null;
+let formDirty = false;
+let formHydrated = false;
+let refreshInFlight = false;
+let refreshTimer = null;
+let accountSearchResults = [];
+let accountSearchLoading = false;
+let accountSearchRequestId = 0;
+let accountSearchDebounceTimer = null;
+let accountSearchTempEmailStatus = null;
+let logStickToEnd = localStorage.getItem(LOG_STICK_TO_END_STORAGE_KEY) !== '0';
+
+async function call(type, payload) {
+  const response = await chrome.runtime.sendMessage({ type, payload });
+  if (!response?.ok) {
+    throw new Error(response?.error || '未知错误');
+  }
+  return response.data;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = String(text ?? '');
+  return div.innerHTML;
+}
+
+function getButton(id) {
+  return $(id);
+}
+
+function isButtonBusy(button) {
+  return Boolean(button?.dataset.busy === '1');
+}
+
+function setButtonBusy(button, busy, loadingText = '处理中...') {
+  setButtonBusyState(button, busy, loadingText);
+}
+
+function flashButton(button, className) {
+  if (!button) return;
+  button.classList.remove('is-success', 'is-error');
+  void button.offsetWidth;
+  button.classList.add(className);
+  setTimeout(() => button.classList.remove(className), 900);
+}
+
+function showToast(message, type = 'info', duration = 2200) {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <span class="toast-icon">${TOAST_ICONS[type] || TOAST_ICONS.info}</span>
+    <span class="toast-message">${escapeHtml(message)}</span>
+  `;
+  elements.toastContainer.appendChild(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, duration);
+}
+
+function toggleSecretInput(inputId, button, visibleTitle, hiddenTitle) {
+  const input = $(inputId);
+  if (!input || !button) return;
+  const visible = input.type === 'text';
+  input.type = visible ? 'password' : 'text';
+  button.textContent = visible ? EYE_STATES.hidden : EYE_STATES.visible;
+  button.title = visible ? hiddenTitle : visibleTitle;
+  button.setAttribute('aria-label', button.title);
+}
+
+function getStepStatuses(state = latestState) {
+  return { ...STEP_DEFAULT_STATUSES, ...(state?.stepStatuses || {}) };
+}
+
+function getCompletedCount(state = latestState) {
+  return Object.values(getStepStatuses(state)).filter((status) => status === 'completed').length;
+}
+
+function getFirstStepByStatus(targetStatus, state = latestState) {
+  const statuses = getStepStatuses(state);
+  for (let step = 1; step <= 7; step += 1) {
+    if (statuses[step] === targetStatus) {
+      return step;
+    }
+  }
+  return null;
+}
+
+function updateSaveUI() {
+  if (!elements.saveButton || !elements.saveHint) return;
+
+  elements.saveButton.disabled = !formDirty || isButtonBusy(elements.saveButton) || Boolean(latestState?.autoRunning);
+  elements.saveHint.classList.remove('is-dirty', 'is-saving');
+
+  if (isButtonBusy(elements.saveButton)) {
+    elements.saveHint.textContent = '保存中...';
+    elements.saveHint.classList.add('is-saving');
+    return;
+  }
+
+  if (formDirty) {
+    elements.saveHint.textContent = '有修改待保存';
+    elements.saveHint.classList.add('is-dirty');
+    return;
+  }
+
+  elements.saveHint.textContent = '已保存';
+}
+
+function markDirty() {
+  formDirty = true;
+  updateSaveUI();
+}
+
+function hydrateForm(state) {
+  $('api-key').value = state.apiKey || '';
+  $('mail-api-base-url').value = state.mailApiBaseUrl || '';
+  $('mail-ui-password').value = state.mailUiPassword || 'admini123';
+  $('login-page-url').value = state.loginPageUrl || '';
+  $('session-endpoint-url').value = state.sessionEndpointUrl || '';
+  $('session-protection-enabled').checked = state.sessionProtectionEnabled !== false;
+  $('session-protection-disable-password').value = state.sessionProtectionDisablePassword || '';
+  $('profile-full-name').value = state.profileFullName || 'nicai';
+  $('profile-age').value = state.profileAge || '25';
+  $('run-count').value = state.runCount || 1;
+  $('poll-interval').value = state.pollIntervalSec || 3;
+  $('poll-timeout').value = state.pollTimeoutSec || 60;
+}
+
+function renderSteps(state) {
+  const statuses = getStepStatuses(state);
+  for (let step = 1; step <= 7; step += 1) {
+    const status = statuses[step];
+    const row = document.querySelector(`.step-row[data-step="${step}"]`);
+    const indicator = document.querySelector(`.step-status[data-step="${step}"]`);
+    if (!row || !indicator) continue;
+
+    row.classList.remove('is-running', 'is-success', 'is-error');
+    if (status === 'running') row.classList.add('is-running');
+    if (status === 'completed') row.classList.add('is-success');
+    if (status === 'failed') row.classList.add('is-error');
+    indicator.textContent = STEP_STATUS_ICONS[status] || '';
+  }
+
+  elements.stepsProgress.textContent = `${getCompletedCount(state)} / 7`;
+}
+
+function extractStepTag(message) {
+  const match = String(message || '').match(/(?:步骤|Step)\s*(\d+)/i);
+  return match?.[1] || '';
+}
+
+function renderLogs(state) {
+  const preserveScrollTop = elements.logArea.scrollTop;
+  const stickToBottom = logStickToEnd || isScrollNearBottom(elements.logArea) || !elements.logArea.childElementCount;
+  const logs = state.logs || [];
+  if (!logs.length) {
+    elements.logArea.innerHTML = '<div class="log-empty">暂无日志，等待下一次操作。</div>';
+    elements.logArea.scrollTop = 0;
+    return;
+  }
+
+  elements.logArea.innerHTML = logs
+    .map((entry) => {
+      const timestamp = entry.timestamp
+        ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false })
+        : '--:--:--';
+      const level = ['info', 'ok', 'warn', 'error'].includes(entry.level) ? entry.level : 'info';
+      const levelLabel = LOG_LEVEL_LABELS[level];
+      const stepTag = extractStepTag(entry.message);
+      return `
+        <div class="log-line log-${level}">
+          <span class="log-time">${escapeHtml(timestamp)}</span>
+          <span class="log-level log-level-${level}">${levelLabel}</span>
+          ${stepTag ? `<span class="log-step">步${escapeHtml(stepTag)}</span>` : ''}
+          <span class="log-msg">${escapeHtml(entry.message)}</span>
+        </div>
+      `;
+    })
+    .join('');
+
+  elements.logArea.scrollTop = getLogAreaScrollTop({
+    preserveScrollTop,
+    nextScrollHeight: elements.logArea.scrollHeight,
+    stickToBottom,
+  });
+}
+
+function formatAccountMeta(account = {}) {
+  const meta = [];
+  if (account.provider) {
+    meta.push(account.provider);
+  }
+  if (account.groupName) {
+    meta.push(account.groupName);
+  }
+  if (account.isTemp) {
+    meta.push('临时邮箱');
+  }
+  return meta.join(' · ');
+}
+
+function renderAccountPicker(state = latestState) {
+  const input = elements.accountSearchInput;
+  const status = elements.accountSearchStatus;
+  const results = elements.accountSearchResults;
+  const selectedHint = elements.selectedAccountHint;
+  const clearButton = elements.clearSelectedAccountButton;
+  if (!input || !status || !results || !selectedHint || !clearButton) {
+    return;
+  }
+
+  const locked = Boolean(state?.autoRunning || state?.autoPaused);
+  const selectedAddress = String(state?.selectedAccountAddress || '').trim();
+  const query = input.value.trim();
+
+  input.disabled = locked;
+  if (!isButtonBusy(clearButton)) {
+    clearButton.disabled = locked || !selectedAddress;
+  }
+
+  selectedHint.textContent = selectedAddress
+    ? `已指定：${selectedAddress}`
+    : '未指定：将使用第一个可用邮箱';
+  selectedHint.classList.toggle('is-active', Boolean(selectedAddress));
+
+  if (accountSearchLoading) {
+    status.textContent = '正在加载可用邮箱...';
+  } else if (accountSearchTempEmailStatus?.needLogin && !accountSearchResults.length) {
+    status.textContent = '临时邮箱未纳入搜索：请先在当前浏览器登录邮箱后台';
+  } else if (accountSearchTempEmailStatus?.needLogin) {
+    status.textContent = query
+      ? `当前显示 ${accountSearchResults.length} 个匹配邮箱；临时邮箱未纳入搜索，请先登录邮箱后台`
+      : `当前显示前 ${accountSearchResults.length} 个可用邮箱；临时邮箱未纳入搜索，请先登录邮箱后台`;
+  } else if (!accountSearchResults.length && query) {
+    status.textContent = `没有匹配 “${query}” 的可用邮箱`;
+  } else if (!accountSearchResults.length) {
+    status.textContent = '暂无可用邮箱，请检查邮箱平台或更换关键字';
+  } else {
+    status.textContent = query
+      ? `当前显示 ${accountSearchResults.length} 个匹配邮箱，点击即可指定`
+      : `当前显示前 ${accountSearchResults.length} 个可用邮箱，未指定时默认使用第一个`;
+  }
+
+  results.innerHTML = accountSearchResults.map((account) => {
+    const active = account.address === selectedAddress;
+    const meta = formatAccountMeta(account);
+    return `
+      <button
+        class="picker-result ${active ? 'is-active' : ''}"
+        type="button"
+        data-account-address="${escapeHtml(account.address)}"
+        ${locked ? 'disabled' : ''}
+      >
+        <span class="picker-result-main">
+          <span class="picker-result-address mono">${escapeHtml(account.address)}</span>
+          ${meta ? `<span class="picker-result-meta">${escapeHtml(meta)}</span>` : ''}
+        </span>
+        <span class="picker-result-action">${active ? '已选中' : '选择'}</span>
+      </button>
+    `;
+  }).join('');
+}
+
+function buildPlainLogs(state = latestState) {
+  const logs = state?.logs || [];
+  return logs.map((entry) => {
+    const timestamp = entry.timestamp
+      ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false })
+      : '--:--:--';
+    const level = LOG_LEVEL_LABELS[entry.level] || String(entry.level || 'INFO').toUpperCase();
+    return `${timestamp} ${level} ${entry.message}`;
+  }).join('\n');
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
+function renderState(state) {
+  latestState = state;
+
+  if (!formHydrated || !formDirty) {
+    hydrateForm(state);
+    formHydrated = true;
+  }
+
+  renderSteps(state);
+  renderLogs(state);
+  renderAccountPicker(state);
+  updateAutoRunButton(state);
+  updateRecoveryButton(state);
+  updateSaveUI();
+  updateActionAvailability(state);
+}
+
+function updateRecoveryButton(state = latestState) {
+  const button = elements.restartCurrentButton;
+  if (!button || isButtonBusy(button)) return;
+  button.textContent = getAutoRunRestartLabel(state);
+}
+
+function updateAutoRunButton(state = latestState) {
+  const button = elements.autoRunButton;
+  if (!button || isButtonBusy(button)) return;
+  button.textContent = getAutoRunPrimaryControl(state).label;
+}
+
+function collectSettings() {
+  return {
+    apiKey: $('api-key').value.trim(),
+    mailApiBaseUrl: $('mail-api-base-url').value.trim(),
+    mailUiPassword: $('mail-ui-password').value.trim(),
+    loginPageUrl: $('login-page-url').value.trim(),
+    sessionEndpointUrl: $('session-endpoint-url').value.trim(),
+    sessionProtectionEnabled: $('session-protection-enabled').checked,
+    sessionProtectionDisablePassword: $('session-protection-disable-password').value,
+    profileFullName: $('profile-full-name').value.trim(),
+    profileAge: $('profile-age').value.trim(),
+    runCount: Number($('run-count').value || 1),
+    pollIntervalSec: Number($('poll-interval').value || 3),
+    pollTimeoutSec: Number($('poll-timeout').value || 60),
+    mailKeyword: latestState?.mailKeyword || '',
+    mailFromKeyword: latestState?.mailFromKeyword || '',
+  };
+}
+
+async function refreshState() {
+  if (refreshInFlight) {
+    return;
+  }
+
+  refreshInFlight = true;
+  try {
+    const state = await call('GET_STATE');
+    renderState(state);
+  } catch (error) {
+    showToast(`刷新状态失败：${error.message}`, 'error', 3200);
+  } finally {
+    refreshInFlight = false;
+  }
+}
+
+async function persistForm({ silent = false } = {}) {
+  const button = elements.saveButton;
+  setButtonBusy(button, true, '保存中...');
+  updateSaveUI();
+
+  try {
+    const state = await call('SAVE_SETTINGS', collectSettings());
+    formDirty = false;
+    renderState(state);
+    if (!silent) {
+      showToast('设置已保存', 'success');
+    }
+    flashButton(button, 'is-success');
+    return state;
+  } catch (error) {
+    flashButton(button, 'is-error');
+    showToast(`保存失败：${error.message}`, 'error', 3200);
+    throw error;
+  } finally {
+    setButtonBusy(button, false);
+    updateSaveUI();
+  }
+}
+
+async function runAction(type, payload, options = {}) {
+  const {
+    buttonId,
+    saveFirst = false,
+    successMessage = '操作已执行',
+    loadingText = '执行中...',
+  } = options;
+
+  const button = buttonId ? getButton(buttonId) : null;
+
+  try {
+    if (button) {
+      setButtonBusy(button, true, loadingText);
+    }
+    if (saveFirst && formDirty) {
+      await persistForm({ silent: true });
+    }
+    const data = await call(type, payload);
+    await refreshState();
+    if (successMessage) {
+      showToast(successMessage, 'success');
+    }
+    if (button) {
+      flashButton(button, 'is-success');
+    }
+    return data;
+  } catch (error) {
+    if (button) {
+      flashButton(button, 'is-error');
+    }
+    showToast(error.message, 'error', 3200);
+    throw error;
+  } finally {
+    if (button) {
+      setButtonBusy(button, false);
+      updateActionAvailability(latestState);
+    }
+  }
+}
+
+async function triggerAutoRunCommand(type, {
+  saveFirst = false,
+  launchMessage = '',
+} = {}) {
+  if (saveFirst && formDirty) {
+    await persistForm({ silent: true });
+  }
+
+  chrome.runtime.sendMessage({ type, payload: null }).catch((error) => {
+    showToast(error?.message || String(error), 'error', 3200);
+  });
+
+  await refreshState();
+  if (launchMessage) {
+    showToast(launchMessage, 'success');
+  }
+}
+
+async function triggerControlCommand(type, button, {
+  saveFirst = false,
+  loadingText = '处理中...',
+  launchMessage = '',
+} = {}) {
+  setButtonBusy(button, true, loadingText);
+  return triggerAutoRunCommand(type, {
+    saveFirst,
+    launchMessage,
+  }).finally(() => {
+    setButtonBusy(button, false);
+    updateActionAvailability(latestState);
+  });
+}
+
+function updateActionAvailability(state = latestState) {
+  const locked = Boolean(state?.autoRunning || state?.autoPaused);
+  actionButtonIds.forEach((id) => {
+    const button = getButton(id);
+    if (!button || isButtonBusy(button)) return;
+    if (id === 'save-settings') {
+      return;
+    }
+    if (['auto-run-current', 'restart-current-run', 'restart-next-account'].includes(id)) {
+      button.disabled = false;
+      return;
+    }
+    if (id === 'quick-interrupt-run') {
+      button.disabled = !state?.autoRunning;
+      return;
+    }
+    button.disabled = locked;
+  });
+  updateSaveUI();
+  updateAutoRunButton(state);
+  renderAccountPicker(state);
+}
+
+async function refreshAccountSearchResults({ silent = false } = {}) {
+  if (!elements.accountSearchInput) {
+    return;
+  }
+
+  const requestId = ++accountSearchRequestId;
+  accountSearchLoading = true;
+  renderAccountPicker(latestState);
+
+  try {
+    const data = await call('LIST_AVAILABLE_ACCOUNTS', {
+      query: elements.accountSearchInput.value.trim(),
+    });
+    if (requestId !== accountSearchRequestId) {
+      return;
+    }
+    accountSearchResults = Array.isArray(data?.accounts) ? data.accounts : [];
+    accountSearchTempEmailStatus = data?.tempEmailStatus || null;
+  } catch (error) {
+    if (requestId !== accountSearchRequestId) {
+      return;
+    }
+    accountSearchResults = [];
+    accountSearchTempEmailStatus = null;
+    if (!silent) {
+      showToast(`邮箱搜索失败：${error.message}`, 'error', 3200);
+    }
+  } finally {
+    if (requestId === accountSearchRequestId) {
+      accountSearchLoading = false;
+      renderAccountPicker(latestState);
+    }
+  }
+}
+
+function scheduleAccountSearchRefresh() {
+  clearTimeout(accountSearchDebounceTimer);
+  accountSearchDebounceTimer = setTimeout(() => {
+    refreshAccountSearchResults({ silent: true }).catch(() => {});
+  }, 180);
+}
+
+async function selectAccount(address, button) {
+  if (!address) {
+    return;
+  }
+
+  try {
+    if (button) {
+      setButtonBusy(button, true, '选择中...');
+    }
+    await call('SELECT_ACCOUNT', { address });
+    await refreshState();
+    await refreshAccountSearchResults({ silent: true });
+    showToast(`已指定邮箱：${address}`, 'success');
+    if (button) {
+      flashButton(button, 'is-success');
+    }
+  } catch (error) {
+    if (button) {
+      flashButton(button, 'is-error');
+    }
+    showToast(error.message, 'error', 3200);
+  } finally {
+    if (button) {
+      setButtonBusy(button, false);
+    }
+    renderAccountPicker(latestState);
+  }
+}
+
+async function clearSelectedAccount() {
+  const button = elements.clearSelectedAccountButton;
+  try {
+    setButtonBusy(button, true, '清除中...');
+    await call('SELECT_ACCOUNT', { address: '' });
+    await refreshState();
+    await refreshAccountSearchResults({ silent: true });
+    showToast('已清除指定邮箱，将改用第一个可用邮箱', 'success');
+    flashButton(button, 'is-success');
+  } catch (error) {
+    flashButton(button, 'is-error');
+    showToast(error.message, 'error', 3200);
+  } finally {
+    setButtonBusy(button, false);
+    renderAccountPicker(latestState);
+  }
+}
+
+function bindAction(id, type, options) {
+  const button = getButton(id);
+  if (!button) return;
+  button.addEventListener('click', () => {
+    const payload = typeof options?.payload === 'function'
+      ? options.payload()
+      : (options?.payload ?? null);
+    runAction(type, payload, {
+      ...options,
+      buttonId: id,
+    }).catch(() => {});
+  });
+}
+
+function startRefreshLoop() {
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    refreshState().catch(() => {});
+  }, 1000);
+}
+
+formIds.forEach((id) => {
+  const element = $(id);
+  if (!element) return;
+  const eventName = element.type === 'checkbox' ? 'change' : 'input';
+  element.addEventListener(eventName, markDirty);
+});
+
+elements.saveButton.addEventListener('click', () => {
+  persistForm().catch(() => {});
+});
+
+if (elements.logStickToEndInput) {
+  elements.logStickToEndInput.checked = logStickToEnd;
+  elements.logStickToEndInput.addEventListener('change', () => {
+    logStickToEnd = elements.logStickToEndInput.checked;
+    localStorage.setItem(LOG_STICK_TO_END_STORAGE_KEY, logStickToEnd ? '1' : '0');
+    if (logStickToEnd) {
+      elements.logArea.scrollTop = elements.logArea.scrollHeight;
+    }
+  });
+}
+
+elements.autoRunButton?.addEventListener('click', async () => {
+  const state = latestState || await call('GET_STATE');
+  const primaryControl = getAutoRunPrimaryControl(state);
+
+  if (primaryControl.action === 'pause') {
+    runAction('PAUSE_AUTO_RUN', null, {
+      buttonId: 'auto-run-current',
+      successMessage: '已请求暂停自动流程',
+      loadingText: '暂停中...',
+    }).catch(() => {});
+    return;
+  }
+
+  if (primaryControl.action === 'continue') {
+    const failedStep = getFirstStepByStatus('failed', state);
+    setButtonBusy(elements.autoRunButton, true, '继续中...');
+    triggerAutoRunCommand(failedStep ? 'CONTINUE_AUTO_RUN' : 'RESUME_AUTO_RUN', {
+      saveFirst: true,
+      launchMessage: '自动流程已继续',
+    }).catch(() => {})
+      .finally(() => {
+        setButtonBusy(elements.autoRunButton, false);
+        updateActionAvailability(latestState);
+      });
+    return;
+  }
+
+  setButtonBusy(elements.autoRunButton, true, '启动中...');
+  triggerAutoRunCommand('AUTO_RUN_CURRENT', {
+    saveFirst: true,
+    launchMessage: '自动流程已启动',
+  }).catch(() => {})
+    .finally(() => {
+      setButtonBusy(elements.autoRunButton, false);
+      updateActionAvailability(latestState);
+    });
+});
+
+elements.restartCurrentButton?.addEventListener('click', () => {
+  triggerControlCommand('RESTART_CURRENT_RUN', elements.restartCurrentButton, {
+    saveFirst: true,
+    loadingText: '重启中...',
+    launchMessage: '已处理重新开始请求',
+  }).catch(() => {});
+});
+
+elements.quickInterruptButton?.addEventListener('click', () => {
+  triggerControlCommand('QUICK_INTERRUPT_AUTO_RUN', elements.quickInterruptButton, {
+    loadingText: '中断中...',
+    launchMessage: '已快速中断当前流程，可重试',
+  }).catch(() => {});
+});
+
+elements.restartNextButton?.addEventListener('click', () => {
+  triggerControlCommand('RESTART_WITH_NEXT_ACCOUNT', elements.restartNextButton, {
+    saveFirst: true,
+    loadingText: '切换中...',
+    launchMessage: '已处理下一个账号请求',
+  }).catch(() => {});
+});
+
+elements.accountSearchInput?.addEventListener('input', () => {
+  scheduleAccountSearchRefresh();
+});
+
+elements.accountSearchResults?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-account-address]');
+  if (!(button instanceof HTMLButtonElement) || isButtonBusy(button)) {
+    return;
+  }
+  selectAccount(button.dataset.accountAddress || '', button).catch(() => {});
+});
+
+elements.clearSelectedAccountButton?.addEventListener('click', () => {
+  if (isButtonBusy(elements.clearSelectedAccountButton)) {
+    return;
+  }
+  clearSelectedAccount().catch(() => {});
+});
+
+bindAction('step-1', 'GET_SANDBOX_EMAIL', {
+  saveFirst: true,
+  successMessage: '步骤 1 已完成',
+  loadingText: '执行中...',
+});
+
+bindAction('step-2', 'OPEN_SANDBOX_LOGIN_PAGE', {
+  saveFirst: true,
+  successMessage: '步骤 2 已完成',
+  loadingText: '执行中...',
+});
+
+bindAction('step-3', 'EXECUTE_SANDBOX_STEP', {
+  payload: { step: 3 },
+  saveFirst: true,
+  successMessage: '步骤 3 已完成',
+  loadingText: '执行中...',
+});
+
+bindAction('poll-signup-code', 'POLL_VERIFICATION_CODE', {
+  payload: { phase: 'signup' },
+  saveFirst: true,
+  successMessage: '验证码已获取',
+  loadingText: '取码中...',
+});
+
+bindAction('fill-signup-code', 'FILL_LAST_CODE', {
+  payload: { phase: 'signup' },
+  saveFirst: true,
+  successMessage: '验证码已回填',
+  loadingText: '回填中...',
+});
+
+bindAction('step-5', 'EXECUTE_SANDBOX_STEP', {
+  payload: { step: 5 },
+  saveFirst: true,
+  successMessage: '步骤 5 已完成',
+  loadingText: '执行中...',
+});
+
+bindAction('step-6', 'COPY_SANDBOX_SESSION_JSON', {
+  saveFirst: true,
+  successMessage: 'Session JSON 已复制',
+  loadingText: '执行中...',
+});
+
+bindAction('step-7', 'SUBMIT_SESSION_TO_PAYURL', {
+  saveFirst: true,
+  successMessage: '支付长链生成已提交',
+  loadingText: '执行中...',
+});
+
+bindAction('complete-flow', 'COMPLETE_CURRENT_ACCOUNT', {
+  saveFirst: true,
+  successMessage: '当前流程已完成并已标记',
+  loadingText: '提交中...',
+});
+
+elements.copyLogsButton?.addEventListener('click', async () => {
+  const button = elements.copyLogsButton;
+  const text = buildPlainLogs();
+  if (!text) {
+    showToast('当前没有可复制的日志', 'warn');
+    return;
+  }
+
+  try {
+    setButtonBusy(button, true, '复制中...');
+    await copyText(text);
+    showToast('日志已复制', 'success');
+    flashButton(button, 'is-success');
+  } catch (error) {
+    flashButton(button, 'is-error');
+    showToast(`复制失败：${error.message}`, 'error', 3200);
+  } finally {
+    setButtonBusy(button, false);
+  }
+});
+
+elements.clearLogsButton?.addEventListener('click', () => {
+  runAction('CLEAR_LOGS', null, {
+    buttonId: 'clear-logs',
+    successMessage: '日志已清空',
+    loadingText: '清空中...',
+  }).catch(() => {});
+});
+
+elements.toggleApiKeyButton?.addEventListener('click', () => {
+  toggleSecretInput('api-key', elements.toggleApiKeyButton, '隐藏 API Key', '显示 API Key');
+});
+
+elements.toggleMailUiPasswordButton?.addEventListener('click', () => {
+  toggleSecretInput('mail-ui-password', elements.toggleMailUiPasswordButton, '隐藏邮箱后台密码', '显示邮箱后台密码');
+});
+
+elements.toggleSessionProtectionDisablePasswordButton?.addEventListener('click', () => {
+  toggleSecretInput(
+    'session-protection-disable-password',
+    elements.toggleSessionProtectionDisablePasswordButton,
+    '隐藏关闭保护密码',
+    '显示关闭保护密码'
+  );
+});
+
+refreshState().catch(() => {});
+refreshAccountSearchResults({ silent: true }).catch(() => {});
+startRefreshLoop();

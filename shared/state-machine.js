@@ -1,0 +1,111 @@
+export const DEFAULT_SETTINGS = {
+  apiKey: '',
+  mailApiBaseUrl: '',
+  mailUiPassword: 'admini123',
+  loginPageUrl: '',
+  sessionEndpointUrl: '',
+  sessionProtectionEnabled: true,
+  sessionProtectionDisablePassword: '',
+  profileFullName: 'nicai',
+  profileAge: '25',
+  defaultLoginPassword: '',
+  oauthUrl: '',
+  vpsUrl: '',
+  vpsPassword: '',
+  accountPoolText: '',
+  autoImport: false,
+  runCount: 1,
+  skipFailedAccounts: false,
+  pollIntervalSec: 3,
+  pollTimeoutSec: 60,
+  mailKeyword: '',
+  mailFromKeyword: '',
+  consumedVerificationMails: {},
+  recordSuccessResults: false,
+  successResults: [],
+  usedAccounts: {},
+};
+
+export const DEFAULT_RUNTIME = {
+  currentAccountIndex: 0,
+  selectedAccountAddress: '',
+  currentAccount: null,
+  currentEmailRecord: null,
+  pendingSignupSteps: {},
+  authTabId: null,
+  localhostUrl: '',
+  lastSignupCode: '',
+  lastLoginCode: '',
+  lastSignupMail: null,
+  lastLoginMail: null,
+  lastSessionJson: '',
+  lastSessionEndpoint: '',
+  autoRunning: false,
+  autoPaused: false,
+  stopRequested: false,
+  autoCurrentRun: 0,
+  autoTotalRuns: 0,
+  pendingAutoAction: '',
+  logs: [],
+  stepStatuses: {
+    1: 'pending',
+    2: 'pending',
+    3: 'pending',
+    4: 'pending',
+    5: 'pending',
+    6: 'pending',
+    7: 'pending',
+  },
+};
+
+export function sanitizeSettings(input = {}) {
+  const consumedVerificationMails = input.consumedVerificationMails && typeof input.consumedVerificationMails === 'object'
+    ? Object.fromEntries(
+      Object.entries(input.consumedVerificationMails).map(([email, entries]) => [
+        String(email || '').trim().toLowerCase(),
+        Array.isArray(entries)
+          ? entries
+            .map((entry) => ({
+              messageId: String(entry?.messageId || '').trim(),
+              usedAt: String(entry?.usedAt || '').trim(),
+            }))
+            .filter((entry) => entry.messageId && entry.usedAt)
+          : [],
+      ])
+    )
+    : {};
+
+  return {
+    apiKey: String(input.apiKey || '').trim(),
+    mailApiBaseUrl: String(input.mailApiBaseUrl || '').trim(),
+    mailUiPassword: String(input.mailUiPassword || DEFAULT_SETTINGS.mailUiPassword).trim(),
+    loginPageUrl: String(input.loginPageUrl || '').trim(),
+    sessionEndpointUrl: String(input.sessionEndpointUrl || '').trim(),
+    sessionProtectionEnabled: input.sessionProtectionEnabled !== false,
+    sessionProtectionDisablePassword: String(input.sessionProtectionDisablePassword || ''),
+    profileFullName: String(input.profileFullName || DEFAULT_SETTINGS.profileFullName).trim(),
+    profileAge: String(input.profileAge || DEFAULT_SETTINGS.profileAge).trim(),
+    defaultLoginPassword: String(input.defaultLoginPassword || '').trim(),
+    oauthUrl: String(input.oauthUrl || '').trim(),
+    vpsUrl: String(input.vpsUrl || '').trim(),
+    vpsPassword: String(input.vpsPassword || ''),
+    accountPoolText: String(input.accountPoolText || ''),
+    autoImport: Boolean(input.autoImport),
+    runCount: Math.max(1, Number(input.runCount) || DEFAULT_SETTINGS.runCount),
+    skipFailedAccounts: Boolean(input.skipFailedAccounts),
+    pollIntervalSec: Math.max(1, Number(input.pollIntervalSec) || DEFAULT_SETTINGS.pollIntervalSec),
+    pollTimeoutSec: Math.max(5, Number(input.pollTimeoutSec) || DEFAULT_SETTINGS.pollTimeoutSec),
+    mailKeyword: String(input.mailKeyword || '').trim(),
+    mailFromKeyword: String(input.mailFromKeyword || '').trim(),
+    consumedVerificationMails,
+    recordSuccessResults: Boolean(input.recordSuccessResults),
+    successResults: Array.isArray(input.successResults) ? [...input.successResults] : [],
+    usedAccounts: input.usedAccounts && typeof input.usedAccounts === 'object'
+      ? { ...input.usedAccounts }
+      : {},
+  };
+}
+
+export function mergeLogs(currentLogs = [], entry) {
+  return [...currentLogs, entry].slice(-200);
+}

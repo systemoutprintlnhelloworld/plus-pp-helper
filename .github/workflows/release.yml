@@ -1,0 +1,88 @@
+name: Release Extension
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Stage extension files
+        run: |
+          rm -rf dist
+          mkdir -p dist/plus-pp-helper
+          cp manifest.json background.js dist/plus-pp-helper/
+          cp -R content shared sidepanel icons dist/plus-pp-helper/
+
+      - name: Build ZIP
+        run: |
+          cd dist/plus-pp-helper
+          zip -r ../plus-pp-helper.zip .
+
+      - name: Prepare CRX key
+        env:
+          CRX_PRIVATE_KEY_B64: ${{ secrets.CRX_PRIVATE_KEY_B64 }}
+        run: |
+          if [ -n "$CRX_PRIVATE_KEY_B64" ]; then
+            echo "$CRX_PRIVATE_KEY_B64" | base64 -d > dist/plus-pp-helper.pem
+          fi
+
+      - name: Build CRX
+        run: |
+          if [ -f dist/plus-pp-helper.pem ]; then
+            chrome --pack-extension="$PWD/dist/plus-pp-helper" --pack-extension-key="$PWD/dist/plus-pp-helper.pem"
+          else
+            chrome --pack-extension="$PWD/dist/plus-pp-helper"
+          fi
+          rm -f dist/plus-pp-helper.pem
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: plus-pp-helper-extension
+          path: |
+            dist/plus-pp-helper.zip
+            dist/plus-pp-helper.crx
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('auto-{0}', github.run_number) }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && format('plus-pp-helper {0}', github.ref_name) || format('plus-pp-helper auto release #{0}', github.run_number) }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          body: |
+            Automated extension release for commit ${{ github.sha }}.
+
+            Artifacts:
+            - plus-pp-helper.zip
+            - plus-pp-helper.crx
+          files: |
+            dist/plus-pp-helper.zip
+            dist/plus-pp-helper.crx

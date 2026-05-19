@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plus PP Helper</title>
+    <link rel="stylesheet" href="./sidepanel.css">
+  </head>
+  <body>
+    <main class="panel-shell">
+      <header class="app-header">
+        <div class="header-top">
+          <div class="app-brand">
+            <p class="app-eyebrow">Plus PP Helper</p>
+            <h1>沙箱流程控制台</h1>
+          </div>
+          <button id="save-settings" class="btn btn-secondary btn-sm" type="button">保存设置</button>
+        </div>
+
+        <div class="header-actions">
+          <div class="header-row header-row-bottom">
+            <label class="mini-input mini-input-run">
+              <span>轮数</span>
+              <input id="run-count" type="number" min="1">
+            </label>
+            <button id="auto-run-current" class="btn btn-primary btn-sm" type="button">自动运行</button>
+            <button id="quick-interrupt-run" class="btn btn-danger-ghost btn-sm" type="button">快速中断</button>
+            <button id="restart-current-run" class="btn btn-secondary btn-sm" type="button">继续</button>
+            <button id="restart-next-account" class="btn btn-secondary btn-sm" type="button">下一个账号</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="card">
+        <div class="section-heading">
+          <h2>常用配置</h2>
+          <span id="save-hint" class="save-hint">已保存</span>
+        </div>
+
+        <div class="data-card">
+          <label class="data-row">
+            <span class="data-label">API Key</span>
+            <span class="secret-field">
+              <input id="api-key" class="data-input mono has-eye" type="password" placeholder="Sandbox 邮箱 API Key">
+              <button id="toggle-api-key" class="eye-btn" type="button" title="显示 API Key" aria-label="显示 API Key">◉</button>
+            </span>
+          </label>
+
+          <label class="data-row">
+            <span class="data-label">邮箱 API URL</span>
+            <input id="mail-api-base-url" class="data-input mono" type="text" placeholder="例如 http://localhost:5000">
+          </label>
+
+          <label class="data-row">
+            <span class="data-label">邮箱后台密码</span>
+            <span class="secret-field">
+              <input id="mail-ui-password" class="data-input mono has-eye" type="password" placeholder="admini123">
+              <button id="toggle-mail-ui-password" class="eye-btn" type="button" title="显示邮箱后台密码" aria-label="显示邮箱后台密码">◉</button>
+            </span>
+          </label>
+
+          <label class="data-row">
+            <span class="data-label">登录页 URL</span>
+            <input id="login-page-url" class="data-input mono" type="text" placeholder="例如 http://localhost:5000/auth/login">
+          </label>
+
+          <label class="data-row">
+            <span class="data-label">Session URL</span>
+            <input id="session-endpoint-url" class="data-input mono" type="text" placeholder="例如 http://localhost:5000/api/auth/session">
+          </label>
+
+          <label class="data-row">
+            <span class="data-label">Session 保护</span>
+            <span class="checkbox-field">
+              <input id="session-protection-enabled" type="checkbox" checked>
+              <span>启用 sandbox allowlist 校验</span>
+            </span>
+          </label>
+
+          <label class="data-row">
+            <span class="data-label">关闭保护密码</span>
+            <span class="secret-field">
+              <input id="session-protection-disable-password" class="data-input mono has-eye" type="password" placeholder="关闭保护时填写">
+              <button id="toggle-session-protection-disable-password" class="eye-btn" type="button" title="显示关闭保护密码" aria-label="显示关闭保护密码">◉</button>
+            </span>
+          </label>
+
+          <label class="data-row">
+            <span class="data-label">默认姓名</span>
+            <input id="profile-full-name" class="data-input mono" type="text" placeholder="nicai">
+          </label>
+
+          <label class="data-row">
+            <span class="data-label">默认年龄</span>
+            <input id="profile-age" class="data-input mono" type="number" min="1" placeholder="25">
+          </label>
+
+        </div>
+
+        <div class="settings-grid settings-grid-pair">
+          <label class="compact-field">
+            <span>轮询间隔(秒)</span>
+            <input id="poll-interval" type="number" min="1">
+          </label>
+
+          <label class="compact-field">
+            <span>轮询超时(秒)</span>
+            <input id="poll-timeout" type="number" min="5">
+          </label>
+        </div>
+
+      </section>
+
+      <details class="card picker-card">
+        <summary class="picker-summary">
+          <span class="picker-summary-main">
+            <span class="picker-summary-title">指定邮箱</span>
+            <span class="picker-summary-caption">可选项，不指定时默认使用第一个可用邮箱</span>
+          </span>
+          <span class="summary-tip">展开后搜索并指定已有邮箱</span>
+        </summary>
+
+        <div class="picker-body">
+          <div class="picker-toolbar">
+            <input id="account-search" class="data-input mono" type="text" placeholder="可直接看列表，也可输入关键字筛选已有邮箱">
+            <button id="clear-selected-account" class="btn btn-ghost btn-xs" type="button">清除指定</button>
+          </div>
+
+          <div id="selected-account-hint" class="picker-selected">未指定：将使用第一个可用邮箱</div>
+          <div id="account-search-status" class="picker-status">正在准备可用邮箱列表...</div>
+          <div id="account-search-results" class="picker-results"></div>
+        </div>
+      </details>
+
+      <details class="card advanced-panel">
+        <summary>
+          <span>高级 / 手动调试</span>
+        </summary>
+
+        <div class="steps-header">
+          <span class="section-caption">手动步骤</span>
+          <span id="steps-progress" class="steps-progress">0 / 7</span>
+        </div>
+
+        <div class="steps-list">
+          <div class="step-row" data-step="1">
+            <div class="step-indicator"><span class="step-num">1</span></div>
+            <div class="step-main">
+              <div class="step-title">获取未注册邮箱</div>
+              <div class="step-desc">从 sandbox 邮箱 API 拉取一个可用邮箱。</div>
+            </div>
+            <div class="step-actions">
+              <button id="step-1" class="step-btn" type="button">执行</button>
+              <span class="step-status" data-step="1"></span>
+            </div>
+          </div>
+
+          <div class="step-row" data-step="2">
+            <div class="step-indicator"><span class="step-num">2</span></div>
+            <div class="step-main">
+              <div class="step-title">打开登录页</div>
+              <div class="step-desc">打开配置的 sandbox 登录页并注入页面脚本。</div>
+            </div>
+            <div class="step-actions">
+              <button id="step-2" class="step-btn" type="button">执行</button>
+              <span class="step-status" data-step="2"></span>
+            </div>
+          </div>
+
+          <div class="step-row" data-step="3">
+            <div class="step-indicator"><span class="step-num">3</span></div>
+            <div class="step-main">
+              <div class="step-title">填写邮箱</div>
+              <div class="step-desc">自动提交当前账号邮箱。</div>
+            </div>
+            <div class="step-actions">
+              <button id="step-3" class="step-btn" type="button">执行</button>
+              <span class="step-status" data-step="3"></span>
+            </div>
+          </div>
+
+          <div class="step-row" data-step="4">
+            <div class="step-indicator"><span class="step-num">4</span></div>
+            <div class="step-main">
+              <div class="step-title">邮箱验证码</div>
+              <div class="step-desc">先轮询验证码，再回填到当前页面。</div>
+            </div>
+            <div class="step-actions step-actions-split">
+              <button id="poll-signup-code" class="step-btn step-btn-mini" type="button">取码</button>
+              <button id="fill-signup-code" class="step-btn step-btn-mini" type="button">回填</button>
+              <span class="step-status" data-step="4"></span>
+            </div>
+          </div>
+
+          <div class="step-row" data-step="5">
+            <div class="step-indicator"><span class="step-num">5</span></div>
+            <div class="step-main">
+              <div class="step-title">填写基础资料</div>
+              <div class="step-desc">自动填写姓名等基础信息。</div>
+            </div>
+            <div class="step-actions">
+              <button id="step-5" class="step-btn" type="button">执行</button>
+              <span class="step-status" data-step="5"></span>
+            </div>
+          </div>
+
+          <div class="step-row" data-step="6">
+            <div class="step-indicator"><span class="step-num">6</span></div>
+            <div class="step-main">
+              <div class="step-title">复制 Session JSON</div>
+              <div class="step-desc">打开 Session endpoint 页面并复制完整 JSON。</div>
+            </div>
+            <div class="step-actions">
+              <button id="step-6" class="step-btn" type="button">执行</button>
+              <span class="step-status" data-step="6"></span>
+            </div>
+          </div>
+
+          <div class="step-row" data-step="7">
+            <div class="step-indicator"><span class="step-num">7</span></div>
+            <div class="step-main">
+              <div class="step-title">生成支付长链</div>
+              <div class="step-desc">把最近 Session JSON 填入 payurl 页面并点击生成。</div>
+            </div>
+            <div class="step-actions">
+              <button id="step-7" class="step-btn" type="button">执行</button>
+              <span class="step-status" data-step="7"></span>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="steps-footer">
+          <button id="complete-flow" class="btn btn-secondary btn-sm" type="button">完成流程</button>
+          <span class="section-caption">打 plus 标签并标记当前邮箱为本地已用</span>
+        </div>
+      </details>
+
+      <section class="card">
+        <div class="section-heading section-heading-log">
+          <h2>运行日志</h2>
+          <div class="log-toolbar">
+            <span class="section-caption">带颜色的步骤与异常提示</span>
+            <label class="log-stick-toggle" title="开启后日志刷新时始终滚动到底部">
+              <input id="log-stick-to-end" type="checkbox" checked>
+              <span>Stick end</span>
+            </label>
+            <button id="copy-logs" class="btn btn-ghost btn-xs" type="button">复制</button>
+            <button id="clear-logs" class="btn btn-ghost btn-xs" type="button">清空</button>
+          </div>
+        </div>
+        <div id="log-area" class="log-area"></div>
+      </section>
+    </main>
+
+    <div id="toast-container" class="toast-container"></div>
+    <script type="module" src="./sidepanel.js"></script>
+  </body>
+</html>
