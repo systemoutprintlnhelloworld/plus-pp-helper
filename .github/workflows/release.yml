@@ -83,7 +83,7 @@ jobs:
           else
             echo "tag_name=auto-$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
             echo "release_name=plus-pp-helper auto release #$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish GitHub Release
@@ -93,6 +93,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ steps.release-meta.outputs.release_name }}
           prerelease: ${{ steps.release-meta.outputs.prerelease }}
+          make_latest: true
           body: |
             Automated extension release for commit ${{ github.sha }}.
 

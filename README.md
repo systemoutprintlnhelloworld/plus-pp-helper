@@ -146,7 +146,7 @@ Side Panel 的“高级 / 手动调试”保留 7 个步骤按钮：
 - `plus-pp-helper.zip`
 - `plus-pp-helper.crx`
 
-分支 push 会创建 `auto-<run_number>` prerelease；tag push 会使用 tag 名创建正式 Release。如需稳定的 CRX extension id，在仓库 Secrets 中配置 `CRX_PRIVATE_KEY_B64`，内容为 CRX 私钥 PEM 的 base64。未配置时 workflow 会让 Chrome 临时生成打包密钥，适合测试发布。
+分支 push 会创建 `auto-<run_number>` 正式 Release，并标记为 latest；tag push 会使用 tag 名创建正式 Release。如需稳定的 CRX extension id，在仓库 Secrets 中配置 `CRX_PRIVATE_KEY_B64`，内容为 CRX 私钥 PEM 的 base64。未配置时 workflow 会让 Chrome 临时生成打包密钥，适合测试发布。
 
 ## Sandbox 邮箱 API 兼容
 

@@ -40,7 +40,7 @@ The Side Panel exposes a `快速中断` control. During an active automatic run 
 
 The log toolbar exposes a `Stick end` toggle. When enabled, log refreshes always scroll to the latest entry; when disabled, manual scroll position is preserved unless the user is already near the bottom.
 
-Release automation is defined in `.github/workflows/release.yml`. Any branch push, tag push, or manual workflow dispatch runs tests, stages the Chrome extension files under `dist/plus-pp-helper`, creates `plus-pp-helper.zip`, packs `plus-pp-helper.crx`, uploads workflow artifacts, and publishes a GitHub Release. Branch pushes create `auto-<run_number>` prereleases; tag pushes publish normal releases. A stable CRX key can be supplied with the `CRX_PRIVATE_KEY_B64` repository secret.
+Release automation is defined in `.github/workflows/release.yml`. Any branch push, tag push, or manual workflow dispatch runs tests, stages the Chrome extension files under `dist/plus-pp-helper`, creates `plus-pp-helper.zip`, packs `plus-pp-helper.crx`, uploads workflow artifacts, and publishes a GitHub Release. Branch pushes create `auto-<run_number>` normal releases and mark them as latest; tag pushes publish normal releases. A stable CRX key can be supplied with the `CRX_PRIVATE_KEY_B64` repository secret.
 
 ## API Compatibility
 
