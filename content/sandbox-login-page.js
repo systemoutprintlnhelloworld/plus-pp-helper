@@ -218,10 +218,10 @@ function normalizeHost(hostname) {
 
 function isForbiddenHost(hostname) {
   const normalized = normalizeHost(hostname);
-  return normalized === 'chatgpt.com'
-    || normalized === 'openai.com'
-    || normalized.endsWith('.chatgpt.com')
-    || normalized.endsWith('.openai.com');
+  return normalized === 'e.com'
+    || normalized === 'e.com'
+    || normalized.endsWith('.e.com')
+    || normalized.endsWith('.e.com');
 }
 
 function isLoopbackHost(hostname) {
