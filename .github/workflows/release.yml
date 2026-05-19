@@ -57,9 +57,9 @@ jobs:
             exit 1
           fi
           if [ -f dist/plus-pp-helper.pem ]; then
-            "$CHROME_BIN" --pack-extension="$PWD/dist/plus-pp-helper" --pack-extension-key="$PWD/dist/plus-pp-helper.pem"
+            "$CHROME_BIN" --no-sandbox --pack-extension="$PWD/dist/plus-pp-helper" --pack-extension-key="$PWD/dist/plus-pp-helper.pem"
           else
-            "$CHROME_BIN" --pack-extension="$PWD/dist/plus-pp-helper"
+            "$CHROME_BIN" --no-sandbox --pack-extension="$PWD/dist/plus-pp-helper"
           fi
           rm -f dist/plus-pp-helper.pem
           test -f dist/plus-pp-helper.zip
