@@ -1,6 +1,5 @@
 const FORBIDDEN_SESSION_HOSTS = new Set([
-  'chatgpt.com',
-  'openai.com',
+
 ]);
 
 function normalizeHostname(hostname) {
