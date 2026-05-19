@@ -199,8 +199,5 @@ hotmail-register-extension/
 └── docs/
 ```
 
-## 测试
-
-```bash
-npm test
-```
+# Community
+LINUX DO - The New Ideal Community
