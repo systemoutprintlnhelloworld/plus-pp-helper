@@ -2,10 +2,6 @@ name: Release Extension
 
 on:
   push:
-    branches:
-      - '**'
-    tags:
-      - '**'
   workflow_dispatch:
 
 permissions:
@@ -55,12 +51,19 @@ jobs:
 
       - name: Build CRX
         run: |
+          CHROME_BIN="$(command -v chrome || command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          if [ -z "$CHROME_BIN" ]; then
+            echo "Chrome executable not found"
+            exit 1
+          fi
           if [ -f dist/plus-pp-helper.pem ]; then
-            chrome --pack-extension="$PWD/dist/plus-pp-helper" --pack-extension-key="$PWD/dist/plus-pp-helper.pem"
+            "$CHROME_BIN" --pack-extension="$PWD/dist/plus-pp-helper" --pack-extension-key="$PWD/dist/plus-pp-helper.pem"
           else
-            chrome --pack-extension="$PWD/dist/plus-pp-helper"
+            "$CHROME_BIN" --pack-extension="$PWD/dist/plus-pp-helper"
           fi
           rm -f dist/plus-pp-helper.pem
+          test -f dist/plus-pp-helper.zip
+          test -f dist/plus-pp-helper.crx
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -70,13 +73,26 @@ jobs:
             dist/plus-pp-helper.zip
             dist/plus-pp-helper.crx
 
+      - name: Resolve release metadata
+        id: release-meta
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag_name=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "release_name=plus-pp-helper $GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_name=auto-$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "release_name=plus-pp-helper auto release #$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('auto-{0}', github.run_number) }}
+          tag_name: ${{ steps.release-meta.outputs.tag_name }}
           target_commitish: ${{ github.sha }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && format('plus-pp-helper {0}', github.ref_name) || format('plus-pp-helper auto release #{0}', github.run_number) }}
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          name: ${{ steps.release-meta.outputs.release_name }}
+          prerelease: ${{ steps.release-meta.outputs.prerelease }}
           body: |
             Automated extension release for commit ${{ github.sha }}.
 
