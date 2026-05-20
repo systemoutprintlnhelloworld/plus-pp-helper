@@ -1,5 +1,7 @@
 # Plus PP Helper
-
+<p align="center">
+    <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
+</p>
 Chrome MV3 扩展，用于 CTF / competition sandbox 场景中的账号流程自动化。当前主流程只面向可配置的 sandbox/mock 目标：从邮箱 API 获取未注册邮箱、打开登录页、轮询并回填验证码、填写基础资料，最后读取 sandbox session endpoint，把 JSON 复制到剪贴板，并填入支付长链生成页。
 
 本项目不会默认自动化真实 `chatgpt.com` / OpenAI 注册流程；如果 Session URL 指向真实 ChatGPT/OpenAI 域名，扩展会拒绝执行。
@@ -201,4 +203,6 @@ hotmail-register-extension/
 
 # Community
 LINUX DO - The New Ideal Community
-made with love & linux.do
+<p align="center">
+    <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
+</p>
