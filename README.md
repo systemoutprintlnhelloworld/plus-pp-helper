@@ -201,7 +201,7 @@ hotmail-register-extension/
 └── docs/
 ```
 
-# Community
+# 友链
 LINUX DO - The New Ideal Community
 <p align="center">
     <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
